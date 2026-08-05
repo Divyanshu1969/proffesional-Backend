@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import {uploadOnCloudinary} from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { User} from "../models/user.model.js"
+import jwt from "jsonwebtoken"
 
 const generateAccessAndRefreshTokens = async(userId) => {
     try {
@@ -35,7 +36,7 @@ const registerUser = asyncHandler( async (req, res) => {
     // return response
 
     const {fullName, email, username, password } = req.body
-    //console.log("email : ", email);
+    console.log(email);
 
     if (
         [fullName, email, username, password].some((field) =>
@@ -119,7 +120,7 @@ const loginUser = asyncHandler( async (req, res) => {
 
     const {email, username, password} = req.body
 
-    if(!username || !email){
+    if(!(username || email)){
         throw new ApiError(400, "username or email is required")
     }
 
@@ -192,10 +193,64 @@ const logoutUser = asyncHandler(async(req, res) =>{
    .json(new ApiResponse(200, {}, "User logged out"))
 })
 
+    // Agar user ka acces token khatam ho gaya hai lya pata hrs ka tha 1 day ka tha but agar khatam hogaya hai and useh pir seh login karna padegah and uskhe paas 401 request aajati hai  toh login karneh ki bajaeh voh ek chota sa code or likh sakh ta hai ki agar 401 request aayeh toh 1 endpoint hit karo or vaha seh apna AccessToken refresh karvaloh, yanih ki naya token miljaegah , naya token aiseh milegah ki aap us request keh aandar ek apna RefreshToken bhejogeh saathmai, abh refreshtoken jaiseh hi merko mila, mai kya karungah mere backend mai toh store hai database mai , toh mai refreshtoken koh match karlungah ki aapneh joh bhejah and mere paas joh hai kya voh same hai , agar voh same hai toh chaliyeh dubara seh session start kar deteh hai, yeh ek terah seh login karneh jaisa hi toh hu , toh firseh mai aapkoh accesstoken bhi naya bhej detah hu cookies or apna refreshtoken bhi naya hi karleteh hai , toh usko bhi naya refresh karkeh mai save kar leta hu .    
+
+
+const refreshAccessToken = asyncHandler(async (req, res)
+=>{
+    const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+
+    if(!incomingRefreshToken){
+        throw new ApiError(401, "unauthorized request")
+
+    }
+
+   try {
+     const decodedToken = jwt.verify(
+         incomingRefreshToken,
+         process.env.REFRESH_TOKEN_SECRET
+     )
+ 
+     const user = await User.findById(decodedToken?._id)
+     
+     if(!user){
+         throw new ApiError(401, "Invalid refresh token")
+ 
+     }
+ 
+     if (incomingRefreshToken !== user?.refreshToken){
+         throw new ApiError(401, "Refresh token is expired or used")
+     }
+ 
+     const options = {
+         httpOnly: true,
+         secure : true,
+     }
+ 
+     const {accessToken, newRefreshToken} = await generateAccessAndRefreshTokens(user._id)
+ 
+     return res
+     .status(200)
+     .cookie("accessToken", accessToken)
+     .cookie("refreshToken", newRefreshToken, options)
+     .josn(
+         new ApiResponse(
+             200,
+             {accessToken, refreshToken: newRefreshToken },
+             "Acess token refreshed"
+         )
+     )
+   } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid refresh token")
+   }
+}
+)
+
 export {
     
     registerUser,
     loginUser,
-    logoutUser
+    logoutUser,
+    refreshAccessToken
 
 }
